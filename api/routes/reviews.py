@@ -2,16 +2,19 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import select
 
 from api.middleware.auth import get_current_user
 from api.schemas.review import ReviewCreate, ReviewListResponse, ReviewResponse
 from core.database import get_db
+from core.models.profile import Profile
 from core.models.user import User
 from core.services.review_service import (
     create_review,
     get_review,
     list_reviews,
     process_review,
+    profile_has_ingestible_content,
 )
 
 log = structlog.get_logger()
@@ -28,10 +31,25 @@ async def create_review_endpoint(
 ):
     """
     Create a new review for a profile.
-    Triggers ingestion pipeline and agent orchestration asynchronously.
-    Returns review with status="pending" immediately.
+
+    Returns 404 when the profile does not exist and 422 when it has no
+    GitHub username, portfolio URL, or resume text. Otherwise returns the
+    pending review and processes it in the background.
     """
     try:
+        profile_result = await db.execute(select(Profile).where(Profile.id == data.profile_id))
+        profile = profile_result.scalars().first()
+        if profile is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found",
+            )
+        if not profile_has_ingestible_content(profile):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Profile has no ingested documents",
+            )
+
         # Create review with status="pending"
         review = await create_review(
             db=db,

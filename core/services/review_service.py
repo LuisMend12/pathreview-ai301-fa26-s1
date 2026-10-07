@@ -13,6 +13,28 @@ from core.models.review import Review
 log = structlog.get_logger()
 
 
+def profile_has_ingestible_content(profile: Profile) -> bool:
+    """Return True when the profile has a source the ingestion pipeline can read.
+
+    Ingestion reads github_username, portfolio_url, and resume_text. A missing
+    value or a blank string is not ingestible content.
+
+    Args:
+        profile: Profile row, or any object with those three attributes.
+
+    Returns:
+        True if at least one of those fields contains non-blank text.
+    """
+    for value in (
+        getattr(profile, "github_username", None),
+        getattr(profile, "portfolio_url", None),
+        getattr(profile, "resume_text", None),
+    ):
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
+
+
 async def create_review(
     db,
     profile_id: UUID,
